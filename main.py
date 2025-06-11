@@ -7,7 +7,7 @@ INPUT_FOLDER = "C:\Users\sivaps15\OneDrive - McMaster University\Billing\Pre-Upd
 OUTPUT_FILE = "../Output/MasterWorkbook.xlsx"
 
 def clean_excel_file(filepath):
-    """Load and clean a single Excel file."""
+    """Load them onto a clean file, drop empty rows/columns, and fill NaNs."""
     print(f"Processing: {filepath}")
     try:
         df = pd.read_excel(filepath, engine='openpyxl')
@@ -15,6 +15,7 @@ def clean_excel_file(filepath):
         # Drop empty columns and rows
         df.dropna(how='all', axis=0, inplace=True)
         df.dropna(how='all', axis=1, inplace=True)
+        df.dropna(how='any', axis=1, inplace=True)  # Drop columns with any NaN values
 
         # Fill NaNs or fix formatting issues as needed
         df = df.fillna("")
