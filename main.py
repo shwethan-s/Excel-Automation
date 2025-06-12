@@ -1,54 +1,53 @@
 import os
-import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment
 
-# Folder containing messy monthly sheets
-INPUT_FOLDER = "C:\Users\sivaps15\OneDrive - McMaster University\Billing\Pre-Updated"
-OUTPUT_FILE = "../Output/MasterWorkbook.xlsx"
+# Folder paths
+PRE_UPDATED = "C:\Users\Shwethan\OneDrive\Shwethan - McMaster University\Billing\Pre-Updated"
+CLEANED_OUTPUT = "C:\Users\Shwethan\OneDrive\Shwethan - McMaster University\Billing\Updated"
 
-def clean_excel_file(filepath):
-    """Load them onto a clean file, drop empty rows/columns, and fill NaNs."""
-    print(f"Processing: {filepath}")
-    try:
-        df = pd.read_excel(filepath, engine='openpyxl')
+os.makedirs(CLEANED_OUTPUT, exist_ok=True)
 
-        # Drop empty columns and rows
-        df.dropna(how='all', axis=0, inplace=True)
-        df.dropna(how='all', axis=1, inplace=True)
-        df.dropna(how='any', axis=1, inplace=True)  # Drop columns with any NaN values
+def clean_excel_file(filepath, output_path):
+    print(f"🧹 Cleaning: {filepath}")
+    
+    wb = load_workbook(filepath)
+    sheet = wb.active
 
-        # Fill NaNs or fix formatting issues as needed
-        df = df.fillna("")
+    # Step 1: Unmerge all cells
+    for merged_range in list(sheet.merged_cells.ranges):
+        sheet.unmerge_cells(str(merged_range))
 
-        return df
+    # Step 2: Remove top junk rows (assume useful data starts below row 5)
+    min_row = 1
+    for i in range(1, 6):
+        values = [cell.value for cell in sheet[i] if cell.value is not None]
+        if not values or all(str(v).strip() == "" for v in values):
+            min_row = i + 1
 
-    except Exception as e:
-        print(f"Error reading {filepath}: {e}")
-        return pd.DataFrame()
+    # Step 3: Adjust column widths and apply word wrapping
+    for col in sheet.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            if cell.row >= min_row:
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+                cell.alignment = Alignment(wrap_text=True)
+        sheet.column_dimensions[col_letter].width = max_len + 2
 
-def process_all_excels():
-    print("Starting Excel cleaning and consolidation...")
+    # Step 4: Remove rows above min_row
+    for i in range(min_row - 1):
+        sheet.delete_rows(1)
 
-    combined_data = []
+    # Step 5: Save the cleaned file
+    wb.save(output_path)
+    print(f"✅ Saved cleaned file to: {output_path}")
 
-    for filename in os.listdir(INPUT_FOLDER):
-        if filename.endswith(".xlsx"):
-            path = os.path.join(INPUT_FOLDER, filename)
-            df = clean_excel_file(path)
-            if not df.empty:
-                df["Source File"] = filename  # Add origin info
-                combined_data.append(df)
-
-    if not combined_data:
-        print("No valid Excel files found.")
-        return
-
-    master_df = pd.concat(combined_data, ignore_index=True)
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
-    master_df.to_excel(OUTPUT_FILE, index=False)
-    print(f"Master workbook saved to: {OUTPUT_FILE}")
-
-if __name__ == "__main__":
-    process_all_excels()
-
-
+# Loop through Excel files and clean them
+for file in os.listdir(PRE_UPDATED):
+    if file.endswith(".xlsx"):
+        full_path = os.path.join(PRE_UPDATED, file)
+        output_file = os.path.join(CLEANED_OUTPUT, f"cleaned_{file}")
+        clean_excel_file(full_path, output_file)
