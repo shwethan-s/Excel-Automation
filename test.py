@@ -1,5 +1,6 @@
 import os
 import re
+import math
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, PatternFill, Font
@@ -25,16 +26,21 @@ def extract_clean_meter_name(raw_name):
 def clean_building_name(filename):
     base = os.path.splitext(filename)[0]
     name_part = base.split("Residence - ")[-1]
-
-    # Remove dates, timestamps, and report keywords
     name_part = re.sub(r"\b(?:Report|report|timestamp)\b", "", name_part, flags=re.IGNORECASE)
-    name_part = re.sub(r"\b\d{4}[- ]\d{2}[- ]\d{2}\b", "", name_part)  # YYYY-MM-DD or YYYY MM DD
-    name_part = re.sub(r"\b\d{1,2}[- ]\d{1,2}[- ]\d{2,4}\b", "", name_part)  # MM-DD-YYYY or DD-MM-YY
-    name_part = re.sub(r"\b\d{4}\b", "", name_part)  # Single 4-digit years
-    name_part = re.sub(r"\b\d{1,2}\b", "", name_part)  # Standalone numbers
+    name_part = re.sub(r"\b\d{4}[- ]\d{2}[- ]\d{2}\b", "", name_part)
+    name_part = re.sub(r"\b\d{1,2}[- ]\d{1,2}[- ]\d{2,4}\b", "", name_part)
+    name_part = re.sub(r"\b\d{4}\b", "", name_part)
+    name_part = re.sub(r"\b\d{1,2}\b", "", name_part)
     name_part = re.sub(r"[_\-]{2,}", " ", name_part)
     name_part = re.sub(r"\s{2,}", " ", name_part)
     return name_part.strip(" -_")
+
+def round_to_nearest_power_of_10(val, is_cogen):
+    power = 10 ** (len(str(int(abs(val)))) - 1)
+    if is_cogen:
+        return math.floor(val / power) * power
+    else:
+        return math.ceil(val / power) * power
 
 def format_excel(input_path, intermediate_subfolder, master_data, building_name, today_str, bill_month, time_str):
     filename = os.path.basename(input_path)
@@ -84,36 +90,43 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
     usage_row_index = timestamp_row - 1
 
     for i, col in enumerate(sheet.iter_cols(min_row=first_data_row, min_col=2), start=2):
-        col_values = [cell.value for cell in col if isinstance(cell.value, (int, float))]
-        if len(col_values) < 2:
+        values = [(row, cell.value) for row, cell in enumerate(col, start=first_data_row) if isinstance(cell.value, (int, float))]
+        if len(values) < 2:
             continue
 
-        usage = col_values[-1] - col_values[0]
+        first_row, first = values[0]
+        last_row, last = values[-1]
+
+        # Flip detection
+        flip_value = None
+        for j in range(1, len(values)):
+            prev_val = values[j - 1][1]
+            curr_val = values[j][1]
+            if prev_val != 0 and abs(curr_val / prev_val) < 0.1:
+                flip_value = prev_val
+                break
+
+        is_cogen = "cogen" in building_name.lower()
+        if flip_value and ((last < first and not is_cogen) or (last > first and is_cogen)):
+            rounded = round_to_nearest_power_of_10(flip_value, is_cogen)
+            usage = (rounded - first) + last
+        else:
+            usage = last - first
+
         raw_meter_name = meter_labels[i - 1] if i - 1 < len(meter_labels) else f"Meter {i}"
         clean_meter = extract_clean_meter_name(str(raw_meter_name))
 
-        valid_indices = [cell.row for cell in col if isinstance(cell.value, (int, float))]
-
-        if valid_indices:
-            first_row = valid_indices[0]
-            last_row = valid_indices[-1]
-            try:
-                first_time = parse(str(sheet.cell(row=first_row, column=1).value))
-                last_time = parse(str(sheet.cell(row=last_row, column=1).value))
-
-                billing_month = first_time.month
-                billing_year = first_time.year
-                next_month = billing_month + 1 if billing_month < 12 else 1
-                next_year = billing_year if billing_month < 12 else billing_year + 1
-
-                correct = (
-                    first_time.day == 1 and first_time.strftime("%I:%M %p") == "12:15 AM" and
-                    last_time.day == 1 and last_time.month == next_month and last_time.year == next_year and
-                    last_time.strftime("%I:%M %p") == "12:00 AM"
-                )
-            except:
-                correct = False
-        else:
+        try:
+            first_time = parse(str(sheet.cell(row=first_row, column=1).value))
+            last_time = parse(str(sheet.cell(row=last_row, column=1).value))
+            next_month = 1 if first_time.month == 12 else first_time.month + 1
+            next_year = first_time.year + 1 if first_time.month == 12 else first_time.year
+            correct = (
+                first_time.day == 1 and first_time.strftime("%I:%M %p") == "12:15 AM" and
+                last_time.day == 1 and last_time.month == next_month and last_time.year == next_year and
+                last_time.strftime("%I:%M %p") == "12:00 AM"
+            )
+        except:
             correct = False
 
         color = "C6EFCE" if correct else "FFC7CE"
@@ -175,12 +188,10 @@ def main():
         with pd.ExcelWriter(master_path, engine="openpyxl") as writer:
             master_df.to_excel(writer, index=False)
             worksheet = writer.sheets['Sheet1']
-
             for column_cells in worksheet.columns:
                 max_length = max(len(str(cell.value)) if cell.value else 0 for cell in column_cells)
                 col_letter = get_column_letter(column_cells[0].column)
                 worksheet.column_dimensions[col_letter].width = max_length + 2
-
 
 if __name__ == "__main__":
     main()
