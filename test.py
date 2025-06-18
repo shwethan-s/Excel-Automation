@@ -9,11 +9,18 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from datetime import datetime
 from dateutil.parser import parse
 
-# File Paths (note to not use r strings for Windows paths)
+# File Paths
 PRE_UPDATED = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Pre-Updated"
 INTERMEDIATE_FOLDER = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Intermediate Folder"
 OUTPUT_FOLDER = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Output"
 
+# Check that required folders exist
+for path in [PRE_UPDATED, INTERMEDIATE_FOLDER, OUTPUT_FOLDER]:
+    if not os.path.exists(path):
+        # raise FileNotFoundError(f"❌ Please create folder: {path}")
+                raise FileNotFoundError(
+            f"\n❌ Please create folder '{os.path.basename(path)}' at:\n{path}\n"
+        )
 os.makedirs(INTERMEDIATE_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -34,7 +41,6 @@ def clean_building_name(filename):
     name_part = re.sub(r"[_\-]{2,}", " ", name_part)
     name_part = re.sub(r"\s{2,}", " ", name_part)
     return name_part.strip(" -_")
-
 def round_to_nearest_power_of_10(val, is_cogen):
     power = 10 ** (len(str(int(abs(val)))) - 1)
     if is_cogen:
@@ -43,7 +49,14 @@ def round_to_nearest_power_of_10(val, is_cogen):
         return math.ceil(val / power) * power
 
 def format_excel(input_path, intermediate_subfolder, master_data, building_name, today_str, bill_month, time_str):
+    from openpyxl.styles import Alignment, PatternFill, Font
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    from dateutil.parser import parse
+    import os
+
     filename = os.path.basename(input_path)
+    print(f"🔄 Processing file: {filename}")
     temp_path = input_path
 
     if input_path.lower().endswith(".xls"):
@@ -64,7 +77,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
             break
 
     if timestamp_row is None:
-        print(f"Timestamp not found in: {filename}")
+        print(f"⚠️ Timestamp not found in: {filename}")
         return
 
     irya_start = 1
@@ -88,6 +101,8 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
     meter_labels = [cell.value for cell in sheet[timestamp_row]]
     usage_row_index = timestamp_row - 1
+
+    usage_cells = []
 
     for i, col in enumerate(sheet.iter_cols(min_row=first_data_row, min_col=2), start=2):
         values = [(row, cell.value) for row, cell in enumerate(col, start=first_data_row) if isinstance(cell.value, (int, float))]
@@ -134,10 +149,11 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
         usage_cell.value = round(usage, 2)
         usage_cell.number_format = '#,##0.00'
         usage_cell.fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
-        usage_cell.alignment = Alignment(horizontal="center")
+        usage_cells.append(usage_cell)
 
         master_data.append([building_name, clean_meter, round(usage, 2)])
 
+    # Add table
     end_col = get_column_letter(sheet.max_column)
     end_row = sheet.max_row
     table = Table(displayName="MeterTable", ref=f"A{timestamp_row}:{end_col}{end_row}")
@@ -145,13 +161,20 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
     table.tableStyleInfo = style
     sheet.add_table(table)
 
+    # Force RIGHT alignment on usage cells AFTER table is created
+    for cell in usage_cells:
+        cell.alignment = Alignment(horizontal="right", vertical="center")
+
+    # Column width and formatting
     for col in sheet.columns:
         col_letter = get_column_letter(col[0].column)
         max_len = max((len(str(cell.value)) for cell in col if cell.value), default=0)
         for cell in col:
-            cell.alignment = Alignment(wrap_text=True)
             if isinstance(cell.value, (int, float)):
                 cell.number_format = '#,##0.00'
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            if cell.row != usage_row_index:
+                cell.alignment = Alignment(wrap_text=True)
         sheet.column_dimensions[col_letter].width = max_len + 2
 
     output_filename = f"{today_str}_{time_str}_{bill_month}_{building_name}.xlsx"
@@ -160,6 +183,9 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
     if temp_path != input_path:
         os.remove(temp_path)
+
+    print(f"✅ Completed file: {filename}")
+
 
 def main():
     now = datetime.now()
@@ -172,12 +198,14 @@ def main():
     intermediate_subfolder = os.path.join(INTERMEDIATE_FOLDER, intermediate_subfolder_name)
     os.makedirs(intermediate_subfolder, exist_ok=True)
 
-    for file in os.listdir(PRE_UPDATED):
-        if file.endswith((".xls", ".xlsx")):
-            building = clean_building_name(file)
-            file_path = os.path.join(PRE_UPDATED, file)
-            format_excel(file_path, intermediate_subfolder, master_data, building, today_str, bill_month, time_str)
-            os.remove(file_path)
+    files = [file for file in os.listdir(PRE_UPDATED) if file.endswith((".xls", ".xlsx"))]
+    print(f"📁 Found {len(files)} files in Pre-Updated folder.")
+    for idx, file in enumerate(files, start=1):
+        building = clean_building_name(file)
+        file_path = os.path.join(PRE_UPDATED, file)
+        format_excel(file_path, intermediate_subfolder, master_data, building, today_str, bill_month, time_str)
+        os.remove(file_path)
+        print(f"📦 {idx}/{len(files)} files processed.")
 
     if master_data:
         master_df = pd.DataFrame(master_data, columns=["Building", "Meter", "Usage"])
@@ -192,6 +220,8 @@ def main():
                 max_length = max(len(str(cell.value)) if cell.value else 0 for cell in column_cells)
                 col_letter = get_column_letter(column_cells[0].column)
                 worksheet.column_dimensions[col_letter].width = max_length + 2
+
+        print(f"✅ Master Excel file saved: {master_filename}")
 
 if __name__ == "__main__":
     main()
