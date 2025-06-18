@@ -9,7 +9,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from datetime import datetime
 from dateutil.parser import parse
 
-# Paths
+# File Paths (note to not use r strings for Windows paths)
 PRE_UPDATED = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Pre-Updated"
 INTERMEDIATE_FOLDER = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Intermediate Folder"
 OUTPUT_FOLDER = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Output"
@@ -64,7 +64,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
             break
 
     if timestamp_row is None:
-        print(f"⚠️ Timestamp not found in: {filename}")
+        print(f"Timestamp not found in: {filename}")
         return
 
     irya_start = 1
