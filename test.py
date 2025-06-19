@@ -8,17 +8,27 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from datetime import datetime
 from dateutil.parser import parse
+from uuid import uuid4
 
 # File Paths
-PRE_UPDATED = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Pre-Updated"
-INTERMEDIATE_FOLDER = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Intermediate Folder"
-OUTPUT_FOLDER = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Output"
+# PRE_UPDATED = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Pre-Updated"
+# INTERMEDIATE_FOLDER = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Intermediate Folder"
+# OUTPUT_FOLDER = "C:\\Users\\sivaps15\\OneDrive - McMaster University\\Billing\\Output"
+
+# More robust solution to find OneDrive path
+onedrive_root = os.environ.get("OneDrive")
+if not onedrive_root:
+    raise EnvironmentError("❌ OneDrive path not found. Please ensure OneDrive is set up on this user account.")
+
+PRE_UPDATED = os.path.join(onedrive_root, "Billing", "Pre-Updated")
+INTERMEDIATE_FOLDER = os.path.join(onedrive_root, "Billing", "Intermediate Folder")
+OUTPUT_FOLDER = os.path.join(onedrive_root, "Billing", "Output")
+
 
 # Check that required folders exist
 for path in [PRE_UPDATED, INTERMEDIATE_FOLDER, OUTPUT_FOLDER]:
     if not os.path.exists(path):
-        # raise FileNotFoundError(f"❌ Please create folder: {path}")
-                raise FileNotFoundError(
+        raise FileNotFoundError(
             f"\n❌ Please create folder '{os.path.basename(path)}' at:\n{path}\n"
         )
 os.makedirs(INTERMEDIATE_FOLDER, exist_ok=True)
@@ -41,6 +51,7 @@ def clean_building_name(filename):
     name_part = re.sub(r"[_\-]{2,}", " ", name_part)
     name_part = re.sub(r"\s{2,}", " ", name_part)
     return name_part.strip(" -_")
+
 def round_to_nearest_power_of_10(val, is_cogen):
     power = 10 ** (len(str(int(abs(val)))) - 1)
     if is_cogen:
@@ -49,20 +60,18 @@ def round_to_nearest_power_of_10(val, is_cogen):
         return math.ceil(val / power) * power
 
 def format_excel(input_path, intermediate_subfolder, master_data, building_name, today_str, bill_month, time_str):
-    from openpyxl.styles import Alignment, PatternFill, Font
-    from openpyxl.utils import get_column_letter
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    from dateutil.parser import parse
-    import os
-
     filename = os.path.basename(input_path)
     print(f"🔄 Processing file: {filename}")
-    temp_path = input_path
 
-    if input_path.lower().endswith(".xls"):
-        df = pd.read_excel(input_path, engine="xlrd")
-        temp_path = os.path.join(intermediate_subfolder, filename.replace(".xls", "_temp.xlsx"))
+    # Normalize file by re-saving through pandas to avoid Excel corruption
+    try:
+        df = pd.read_excel(input_path)
+        base_name = os.path.splitext(filename)[0]
+        temp_path = os.path.join(intermediate_subfolder, f"{base_name}_cleaned.xlsx")
         df.to_excel(temp_path, index=False)
+    except Exception as e:
+        print(f"❌ Failed to clean and convert file {filename}: {e}")
+        return
 
     wb = load_workbook(temp_path)
     sheet = wb.active
@@ -76,20 +85,32 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
         if timestamp_row:
             break
 
+
     if timestamp_row is None:
         print(f"⚠️ Timestamp not found in: {filename}")
         return
 
+    # Preserve "Information Requiring Your Attention" section or insert empty rows if not found
+    irya_found = False
     irya_start = 1
     for i in range(1, timestamp_row):
         if sheet.cell(row=i, column=1).value and "Information Requiring Your Attention" in str(sheet.cell(row=i, column=1).value):
             irya_start = i
+            irya_found = True
             sheet.cell(row=i, column=1).font = Font(bold=True)
 
-    if irya_start > 1:
+    if irya_found:
         for _ in range(irya_start - 1):
             sheet.delete_rows(1)
         timestamp_row -= (irya_start - 1)
+    else:
+        for _ in range(timestamp_row - 1):
+            sheet.delete_rows(1)
+        for _ in range(3):
+            sheet.insert_rows(1)
+        timestamp_row = 4
+
+    
 
     first_data_row = timestamp_row + 1
     last_data_row = sheet.max_row
@@ -101,7 +122,6 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
     meter_labels = [cell.value for cell in sheet[timestamp_row]]
     usage_row_index = timestamp_row - 1
-
     usage_cells = []
 
     for i, col in enumerate(sheet.iter_cols(min_row=first_data_row, min_col=2), start=2):
@@ -153,19 +173,21 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
         master_data.append([building_name, clean_meter, round(usage, 2)])
 
-    # Add table
-    end_col = get_column_letter(sheet.max_column)
-    end_row = sheet.max_row
-    table = Table(displayName="MeterTable", ref=f"A{timestamp_row}:{end_col}{end_row}")
-    style = TableStyleInfo(name="TableStyleMedium9", showRowStripes=True)
-    table.tableStyleInfo = style
-    sheet.add_table(table)
 
-    # Force RIGHT alignment on usage cells AFTER table is created
+    try:
+        end_col = get_column_letter(sheet.max_column)
+        end_row = sheet.max_row
+        unique_name = f"MeterTable_{uuid4().hex[:8]}"
+        table = Table(displayName=unique_name, ref=f"A{timestamp_row}:{end_col}{end_row}")
+        style = TableStyleInfo(name="TableStyleMedium9", showRowStripes=True)
+        table.tableStyleInfo = style
+        sheet.add_table(table)
+    except Exception as e:
+        print(f"⚠️ Table creation skipped: {e}")
+    
     for cell in usage_cells:
         cell.alignment = Alignment(horizontal="right", vertical="center")
 
-    # Column width and formatting
     for col in sheet.columns:
         col_letter = get_column_letter(col[0].column)
         max_len = max((len(str(cell.value)) for cell in col if cell.value), default=0)
@@ -180,12 +202,10 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
     output_filename = f"{today_str}_{time_str}_{bill_month}_{building_name}.xlsx"
     output_path = os.path.join(intermediate_subfolder, output_filename)
     wb.save(output_path)
-
-    if temp_path != input_path:
+    if os.path.exists(temp_path) and temp_path != input_path:
         os.remove(temp_path)
 
     print(f"✅ Completed file: {filename}")
-
 
 def main():
     now = datetime.now()
