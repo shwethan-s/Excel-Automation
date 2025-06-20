@@ -164,7 +164,19 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
         except:
             correct = False
 
+        # color = "C6EFCE" if correct else "FFC7CE"
+
+
         color = "C6EFCE" if correct else "FFC7CE"
+
+        # Check for internal blanks between first and last row
+        if correct:
+            for r in range(first_row + 1, last_row):
+                val = sheet.cell(row=r, column=col[0].column).value
+                if val is None or str(val).strip() == "":
+                    color = "FFFF00"  # This sets it to the yellow colour 
+                    break
+
         usage_cell = sheet.cell(row=usage_row_index, column=col[0].column)
         usage_cell.value = round(usage, 2)
         usage_cell.number_format = '#,##0.00'
@@ -227,6 +239,8 @@ def main():
         os.remove(file_path)
         print(f"📦 {idx}/{len(files)} files processed.")
 
+        
+
     if master_data:
         master_df = pd.DataFrame(master_data, columns=["Building", "Meter", "Usage"])
         master_df["Usage"] = master_df["Usage"].map(lambda x: f"{x:,.2f}")
@@ -245,3 +259,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+    
