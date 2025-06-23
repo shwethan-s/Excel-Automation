@@ -201,6 +201,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
         # Only add summary if it's the "IESO and Hospital" sheet
     if "IESO and Hospital" in filename:
+        
         ieso_total = 0
         hospital_total = 0
 
@@ -210,9 +211,13 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
             
             if not meter_header:
                 continue
-            if "12T1Q1" in str(meter_header) or "12T2Q3" in str(meter_header):
+
+
+            normalized = str(meter_header).replace("\n", "").replace(" ", "")
+
+            if "12T1Q1" in normalized or "12T2Q3" in normalized:
                 ieso_total += cell.value or 0
-            if "12M14A" in str(meter_header) or "12M21" in str(meter_header):
+            if "12M14A" in normalized or "12M21" in normalized:
                 hospital_total += cell.value or 0
 
         university_total = ieso_total - hospital_total
@@ -252,7 +257,22 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
                 cell.alignment = Alignment(horizontal='left', vertical='center')  # Timestamp stays left-aligned
 
 
-    
+    # Apply a table style to the main data if not already styled
+    if "IESO and Hospital" not in filename:
+        try:
+            from openpyxl.worksheet.table import Table, TableStyleInfo
+
+            meter_table_ref = f"A{timestamp_row}:{get_column_letter(sheet.max_column)}{sheet.max_row}"
+            table = Table(displayName=f"MeterTable_{uuid4().hex[:6]}", ref=meter_table_ref)
+
+            style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
+                                showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+            table.tableStyleInfo = style
+
+            sheet.add_table(table)
+        except Exception as e:
+            print(f"⚠️ Could not apply table style to intermediate file {filename}: {e}")
+
 
     output_filename = f"{today_str}_{time_str}_{bill_month}_{building_name}.xlsx"
     output_path = os.path.join(intermediate_subfolder, output_filename)
@@ -327,7 +347,7 @@ def main():
             for column_cells in sheet.columns:
                 col_letter = get_column_letter(column_cells[0].column)
                 max_length = max(len(str(cell.value)) if cell.value else 0 for cell in column_cells)
-                sheet.column_dimensions[col_letter].width = max_length + 2
+                sheet.column_dimensions[col_letter].width = max_length + 1
 
                 for cell in column_cells:
                     if column_cells[0].column == 3:  # Column C = "Usage"
