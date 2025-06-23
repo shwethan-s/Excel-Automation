@@ -200,8 +200,50 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
 
         # Only add summary if it's the "IESO and Hospital" sheet
-    if "IESO and Hospital" in filename:
-        
+    if "IESO and Hospital" in filename or "IESO_Hospital" in filename:
+
+        try:
+            from openpyxl.worksheet.table import Table, TableStyleInfo
+
+            # Detect last meter data column
+            last_meter_col = 1
+            for col in range(2, sheet.max_column + 1):
+                header_val = sheet.cell(row=timestamp_row, column=col).value
+                if header_val and str(header_val).strip():
+                    last_meter_col = col
+
+            # Detect how many actual data rows exist under the timestamp
+            first_data_row = timestamp_row + 1
+            last_data_row = sheet.max_row
+            data_row_count = 0
+            for r in range(first_data_row, last_data_row + 1):
+                has_data = any(
+                    sheet.cell(row=r, column=c).value not in [None, ""]
+                    for c in range(2, last_meter_col + 1)
+                )
+                if has_data:
+                    data_row_count += 1
+                else:
+                    break  # Stop at first empty row
+
+            row_end = first_data_row + data_row_count - 1
+
+            print(f"📊 DEBUG – {filename}: table range = A{timestamp_row}:{get_column_letter(last_meter_col)}{row_end}")
+
+            if row_end > timestamp_row and last_meter_col >= 1:
+                last_col_letter = get_column_letter(last_meter_col)
+                meter_table_ref = f"A{timestamp_row}:{last_col_letter}{row_end}"
+
+                table = Table(displayName=f"MeterTable_{uuid4().hex[:6]}", ref=meter_table_ref)
+                style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
+                                    showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+                table.tableStyleInfo = style
+                sheet.add_table(table)
+            else:
+                print(f"⚠️ Skipping table formatting for {filename}: insufficient data rows.")
+        except Exception as e:
+            print(f"⚠️ Could not apply table style to IESO file {filename}: {e}")
+
         ieso_total = 0
         hospital_total = 0
 
@@ -273,6 +315,8 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
         except Exception as e:
             print(f"⚠️ Could not apply table style to intermediate file {filename}: {e}")
 
+    
+    
 
     output_filename = f"{today_str}_{time_str}_{bill_month}_{building_name}.xlsx"
     output_path = os.path.join(intermediate_subfolder, output_filename)
