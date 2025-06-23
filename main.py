@@ -128,7 +128,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
                 rest = rest_parts[0].strip()
                 unit = f"({rest_parts[1].strip(')')})"
 
-            # Add full rest to next line without breaking apart number-text combos
+            
             if rest:
                 lines.append(rest)
             if unit:
