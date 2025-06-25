@@ -18,8 +18,10 @@ master_log_path = os.path.join(LOG_FOLDER, "master_log.txt")
 
 class EmojiFilter(logging.Filter):
     def filter(self, record):
-        # Remove emojis using regex pattern
+       
         record.msg = re.sub(r'[^\x00-\x7F]+', '', str(record.msg))
+
+
         return True
 
 formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s')
