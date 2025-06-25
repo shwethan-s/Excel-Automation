@@ -2,6 +2,7 @@ import os
 import re
 import math
 import pandas as pd
+import logging
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, PatternFill, Font
 from openpyxl.utils import get_column_letter
@@ -10,14 +11,41 @@ from datetime import datetime
 from dateutil.parser import parse
 from uuid import uuid4
 
+
+LOG_FOLDER = "Logs"
+os.makedirs(LOG_FOLDER, exist_ok=True)
+master_log_path = os.path.join(LOG_FOLDER, "master_log.txt")
+
+class EmojiFilter(logging.Filter):
+    def filter(self, record):
+        # Remove emojis using regex pattern
+        record.msg = re.sub(r'[^\x00-\x7F]+', '', str(record.msg))
+        return True
+
+formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s')
+
+# File handler - this will log to a file and strip emojis
+file_handler = logging.FileHandler(master_log_path, mode='a', encoding='utf-8')
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(formatter)
+file_handler.addFilter(EmojiFilter())
+
+# Console handler - this will log to the console and strip emojis
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(formatter)
+
+logging.basicConfig(level=logging.INFO, handlers=[file_handler])
+
+
 # File Paths
 onedrive_root = os.environ.get("OneDrive")
 if not onedrive_root:
     raise EnvironmentError("❌ OneDrive path not found. Please ensure OneDrive is set up on this user account.")
 
-PRE_UPDATED = os.path.join(onedrive_root, "Billing", "Pre-Updated")
-INTERMEDIATE_FOLDER = os.path.join(onedrive_root, "Billing", "Intermediate Folder")
-OUTPUT_FOLDER = os.path.join(onedrive_root, "Billing", "Output")
+PRE_UPDATED = os.path.join(onedrive_root, "Excel Automation Tool", "Pre-Updated")
+INTERMEDIATE_FOLDER = os.path.join(onedrive_root, "Excel Automation Tool", "Intermediate Folder")
+OUTPUT_FOLDER = os.path.join(onedrive_root, "Excel Automation Tool", "Output")
 
 # Check that required folders exist
 for path in [PRE_UPDATED, INTERMEDIATE_FOLDER, OUTPUT_FOLDER]:
@@ -31,6 +59,7 @@ def extract_clean_meter_name(raw_name):
     if len(parts) > 1 and parts[1][:1].isdigit():
         return "M".join([parts[0], parts[1][:1]]) + " " + parts[1][1:].strip()
     return raw_name
+
 
 def clean_building_name(filename):
     base = os.path.splitext(filename)[0]
@@ -51,6 +80,7 @@ def round_to_nearest_power_of_10(val, is_cogen):
 def format_excel(input_path, intermediate_subfolder, master_data, building_name, today_str, bill_month, time_str):
     filename = os.path.basename(input_path)
     print(f"🔄 Processing file: {filename}")
+    logging.info(f"Processing file: {filename}")
 
     try:
         df = pd.read_excel(input_path)
@@ -59,6 +89,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
         df.to_excel(temp_path, index=False)
     except Exception as e:
         print(f"❌ Failed to clean and convert file {filename}: {e}")
+        logging.error(f"Failed to clean and convert file {filename}: {e}")
         return
 
     wb = load_workbook(temp_path)
@@ -75,6 +106,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
     if timestamp_row is None:
         print(f"⚠️ Timestamp not found in: {filename}")
+        logging.warning(f"Timestamp not found in: {filename}")
         return
 
     irya_found = False
@@ -212,6 +244,8 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
                 if header_val and str(header_val).strip():
                     last_meter_col = col
 
+
+
             # Detect how many actual data rows exist under the timestamp
             first_data_row = timestamp_row + 1
             last_data_row = sheet.max_row
@@ -226,9 +260,11 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
                 else:
                     break  # Stop at first empty row
 
+                
+
             row_end = first_data_row + data_row_count - 1
 
-            print(f"📊 DEBUG – {filename}: table range = A{timestamp_row}:{get_column_letter(last_meter_col)}{row_end}")
+           # print(f"📊 DEBUG – {filename}: table range = A{timestamp_row}:{get_column_letter(last_meter_col)}{row_end}")
 
             if row_end > timestamp_row and last_meter_col >= 1:
                 last_col_letter = get_column_letter(last_meter_col)
@@ -314,6 +350,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
             sheet.add_table(table)
         except Exception as e:
             print(f"⚠️ Could not apply table style to intermediate file {filename}: {e}")
+            logging.error(f"Could not apply table style to intermediate file {filename}: {e}")
 
     
     
@@ -324,6 +361,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
     if os.path.exists(temp_path) and temp_path != input_path:
         os.remove(temp_path)
     print(f"✅ Completed file: {filename}")
+    logging.info(f"Completed file: {filename} - saved to {output_path}")
 
 def main():
     now = datetime.now()
@@ -338,12 +376,14 @@ def main():
 
     files = [file for file in os.listdir(PRE_UPDATED) if file.endswith((".xls", ".xlsx"))]
     print(f"📁 Found {len(files)} files in Pre-Updated folder.")
+    logging.info(f"Found {len(files)} files in Pre-Updated folder.")
     for idx, file in enumerate(files, start=1):
         building = clean_building_name(file)
         file_path = os.path.join(PRE_UPDATED, file)
         format_excel(file_path, intermediate_subfolder, master_data, building, today_str, bill_month, time_str)
         os.remove(file_path)
         print(f"📦 {idx}/{len(files)} files processed.")
+        logging.info(f"Processed file {idx}/{len(files)}: {file}")
 
     if master_data:
         df = pd.DataFrame(master_data, columns=["Building", "Meter", "Usage"])
@@ -399,6 +439,9 @@ def main():
 
 
         print(f"✅ Master Excel file saved: {master_filename}")
+        logging.info(f"Master Excel file saved: {master_filename} - {master_path}")
 
 if __name__ == "__main__":
     main()
+    input("Press Enter to exit...")
+

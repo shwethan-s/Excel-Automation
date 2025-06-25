@@ -1,0 +1,13 @@
+[2025-06-25 10:42:10,236] INFO - Processing file: Residence - McKay Bld 27.xls
+[2025-06-25 10:42:12,060] INFO - Processing file: Residence - Moulton Bld 18.xls
+[2025-06-25 10:42:13,093] INFO - Processing file: Residence - Woodstock Bld 35.xls
+[2025-06-25 10:46:04,424] INFO - Processing file: Residence - Mary Keyes Bld 50.xls
+[2025-06-25 10:46:06,444] INFO - Processing file: Residence - Wallingford Bld 6.xls
+[2025-06-25 10:54:40,748] INFO - Found 2 files in Pre-Updated folder.
+[2025-06-25 10:54:40,749] INFO - Processing file: Residence - Mary Keyes Bld 50.xls
+[2025-06-25 10:54:42,876] INFO - Completed file: Residence - Mary Keyes Bld 50.xls - saved to C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Intermediate Folder\2025-06-25_10-54_June\2025-06-25_10-54_June_Mary Keyes Bld.xlsx
+[2025-06-25 10:54:42,878] INFO - Processed file 1/2: Residence - Mary Keyes Bld 50.xls
+[2025-06-25 10:54:42,878] INFO - Processing file: Residence - Moulton Bld 18.xls
+[2025-06-25 10:54:44,107] INFO - Completed file: Residence - Moulton Bld 18.xls - saved to C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Intermediate Folder\2025-06-25_10-54_June\2025-06-25_10-54_June_Moulton Bld.xlsx
+[2025-06-25 10:54:44,110] INFO - Processed file 2/2: Residence - Moulton Bld 18.xls
+[2025-06-25 10:54:44,130] INFO - Master Excel file saved: Final-2025-06-25-10-54-June.xlsx - C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Output\Final-2025-06-25-10-54-June.xlsx
