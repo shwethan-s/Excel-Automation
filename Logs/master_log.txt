@@ -11,3 +11,20 @@
 [2025-06-25 10:54:44,107] INFO - Completed file: Residence - Moulton Bld 18.xls - saved to C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Intermediate Folder\2025-06-25_10-54_June\2025-06-25_10-54_June_Moulton Bld.xlsx
 [2025-06-25 10:54:44,110] INFO - Processed file 2/2: Residence - Moulton Bld 18.xls
 [2025-06-25 10:54:44,130] INFO - Master Excel file saved: Final-2025-06-25-10-54-June.xlsx - C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Output\Final-2025-06-25-10-54-June.xlsx
+[2025-07-07 13:55:40,411] INFO - Found 3 files in Pre-Updated folder.
+[2025-07-07 13:55:40,412] INFO - Processing file: Campus Buildings Month End - Electricity.xls
+[2025-07-07 13:55:42,118] INFO - Completed file: Campus Buildings Month End - Electricity.xls - saved to C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Intermediate Folder\2025-07-07_13-55_July\2025-07-07_13-55_July_Campus Buildings Month End - Electricity.xlsx
+[2025-07-07 13:56:34,622] INFO - Found 1 files in Pre-Updated folder.
+[2025-07-07 13:56:34,623] INFO - Processing file: Campus Buildings Month End - Electricity.xls
+[2025-07-07 13:56:36,273] INFO - Completed file: Campus Buildings Month End - Electricity.xls - saved to C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Intermediate Folder\2025-07-07_13-56_July\2025-07-07_13-56_July_Campus Buildings Month End - Electricity.xlsx
+[2025-07-07 13:58:15,690] INFO - Found 3 files in Pre-Updated folder.
+[2025-07-07 13:58:15,691] INFO - Processing file: Campus Buildings Month End - Electricity.xls
+[2025-07-07 13:58:17,270] INFO - Completed file: Campus Buildings Month End - Electricity.xls - saved to C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Intermediate Folder\2025-07-07_13-58_July\2025-07-07_13-58_July_Campus Buildings Month End - Electricity.xlsx
+[2025-07-07 13:58:17,273] INFO - Processed file 1/3: Campus Buildings Month End - Electricity.xls
+[2025-07-07 13:58:17,273] INFO - Processing file: Cogen Report.xls
+[2025-07-07 13:58:18,301] INFO - Completed file: Cogen Report.xls - saved to C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Intermediate Folder\2025-07-07_13-58_July\2025-07-07_13-58_July_Cogen.xlsx
+[2025-07-07 13:58:18,304] INFO - Processed file 2/3: Cogen Report.xls
+[2025-07-07 13:58:18,305] INFO - Processing file: Residence-Peter George Elec.xls
+[2025-07-07 13:58:21,078] INFO - Completed file: Residence-Peter George Elec.xls - saved to C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Intermediate Folder\2025-07-07_13-58_July\2025-07-07_13-58_July_Residence-Peter George Elec.xlsx
+[2025-07-07 13:58:21,081] INFO - Processed file 3/3: Residence-Peter George Elec.xls
+[2025-07-07 13:58:21,114] INFO - Master Excel file saved: Final-2025-07-07-13-58-July.xlsx - C:\Users\sivaps15\OneDrive - McMaster University\Excel Automation Tool\Output\Final-2025-07-07-13-58-July.xlsx
