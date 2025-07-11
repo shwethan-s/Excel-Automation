@@ -12,9 +12,18 @@ from dateutil.parser import parse
 from uuid import uuid4
 
 
-LOG_FOLDER = "Logs"
+# Get OneDrive root path
+onedrive_root = os.environ.get("OneDrive")
+if not onedrive_root:
+    raise EnvironmentError("❌ OneDrive path not found. Please ensure OneDrive is set up on this user account.")
+
+# Log folder path using OneDrive
+LOG_FOLDER = os.path.join(onedrive_root, "Excel Automation Tool", "Logs")
 os.makedirs(LOG_FOLDER, exist_ok=True)
 master_log_path = os.path.join(LOG_FOLDER, "master_log.txt")
+
+
+
 
 class EmojiFilter(logging.Filter):
     def filter(self, record):
@@ -37,6 +46,7 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
 
+
 logging.basicConfig(level=logging.INFO, handlers=[file_handler])
 
 
@@ -45,6 +55,7 @@ onedrive_root = os.environ.get("OneDrive")
 if not onedrive_root:
     raise EnvironmentError("❌ OneDrive path not found. Please ensure OneDrive is set up on this user account.")
 
+# Defined folder paths for folders 
 PRE_UPDATED = os.path.join(onedrive_root, "Excel Automation Tool", "Pre-Updated")
 INTERMEDIATE_FOLDER = os.path.join(onedrive_root, "Excel Automation Tool", "Intermediate Folder")
 OUTPUT_FOLDER = os.path.join(onedrive_root, "Excel Automation Tool", "Output")
@@ -56,6 +67,8 @@ for path in [PRE_UPDATED, INTERMEDIATE_FOLDER, OUTPUT_FOLDER]:
 os.makedirs(INTERMEDIATE_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
+
+# 
 def extract_clean_meter_name(raw_name):
     parts = raw_name.split("M")
     if len(parts) > 1 and parts[1][:1].isdigit():
@@ -98,6 +111,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
     sheet = wb.active
 
     timestamp_row = None
+
     for row in sheet.iter_rows(min_row=1, max_row=30):
         for cell in row:
             if cell.value and "timestamp" in str(cell.value).lower():
@@ -111,6 +125,8 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
         logging.warning(f"Timestamp not found in: {filename}")
         return
 
+
+    # Infomration Requiring Your Attention (IRYA) section handling
     irya_found = False
     irya_start = 1
     for i in range(1, timestamp_row):
@@ -142,6 +158,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
     for col_idx, cell in enumerate(sheet[timestamp_row], start=1):
         if cell.value:
+
             original = str(cell.value).strip()
             lines = []
 
@@ -357,7 +374,19 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
     
     
 
-    output_filename = f"{today_str}_{time_str}_{bill_month}_{building_name}.xlsx"
+    # Dynamically determine bill_month from first datetime under timestamp
+    bill_month_final = bill_month  # default fallback
+    for row in range(timestamp_row + 1, sheet.max_row + 1):
+        val = sheet.cell(row=row, column=1).value
+        try:
+            dt = parse(str(val), fuzzy=True)
+            bill_month_final = dt.strftime("%B")
+            break
+        except:
+            continue
+
+    output_filename = f"{today_str}_{time_str}_{bill_month_final}_{building_name}.xlsx"
+
     output_path = os.path.join(intermediate_subfolder, output_filename)
     wb.save(output_path)
     if os.path.exists(temp_path) and temp_path != input_path:
@@ -367,18 +396,24 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
 def main():
     now = datetime.now()
+    master_data = []
     today_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%H-%M")
-    bill_month = now.strftime("%B")
-    master_data = []
-
+    
+    bill_month = now.strftime("%B")    
     intermediate_subfolder_name = f"{today_str}_{time_str}_{bill_month}"
+
+    
+
+
     intermediate_subfolder = os.path.join(INTERMEDIATE_FOLDER, intermediate_subfolder_name)
     os.makedirs(intermediate_subfolder, exist_ok=True)
 
     files = [file for file in os.listdir(PRE_UPDATED) if file.endswith((".xls", ".xlsx"))]
     print(f"📁 Found {len(files)} files in Pre-Updated folder.")
     logging.info(f"Found {len(files)} files in Pre-Updated folder.")
+
+
     for idx, file in enumerate(files, start=1):
         building = clean_building_name(file)
         file_path = os.path.join(PRE_UPDATED, file)
