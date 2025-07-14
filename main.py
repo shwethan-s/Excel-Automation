@@ -400,12 +400,11 @@ def main():
     today_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%H-%M")
     
-    bill_month = now.strftime("%B")    
-    intermediate_subfolder_name = f"{today_str}_{time_str}_{bill_month}"
+    bill_month = now.strftime("%B")
+    master_data = []
 
-    
-
-
+    # Use TEMP name for now — will rename after processing files
+    intermediate_subfolder_name = f"{today_str}_{time_str}_TEMP"
     intermediate_subfolder = os.path.join(INTERMEDIATE_FOLDER, intermediate_subfolder_name)
     os.makedirs(intermediate_subfolder, exist_ok=True)
 
@@ -422,6 +421,26 @@ def main():
         print(f"📦 {idx}/{len(files)} files processed.")
         logging.info(f"Processed file {idx}/{len(files)}: {file}")
 
+    # Determine most frequent billing month from intermediate file names
+    from collections import Counter #library imported
+    month_counts = Counter()
+    for file in os.listdir(intermediate_subfolder):
+        match = re.search(rf"{time_str}_(\w+)_", file)
+        if match:
+            month_counts[match.group(1)] += 1
+
+    if month_counts:
+        most_common_month = month_counts.most_common(1)[0][0]
+    else:
+        most_common_month = bill_month  # if this fails then default to current month 
+
+    # Rename intermediate folder to include most common billing month
+    final_folder_name = f"{today_str}_{time_str}_{most_common_month}"
+    final_folder_path = os.path.join(INTERMEDIATE_FOLDER, final_folder_name)
+    os.rename(intermediate_subfolder, final_folder_path)
+    intermediate_subfolder = final_folder_path  # update reference for later use
+
+
     if master_data:
         df = pd.DataFrame(master_data, columns=["Building", "Meter", "Usage"])
         df["Usage"] = df["Usage"].map(lambda x: f"{x:,.2f}")
@@ -433,14 +452,16 @@ def main():
             final_rows.append([None, None, None])  # Spacer row
 
         styled_df = pd.DataFrame(final_rows, columns=["Building", "Meter", "Usage"])
-        master_filename = f"Final-{today_str}-{time_str}-{bill_month}.xlsx"
+        master_filename = f"Final-{today_str}-{time_str}-{most_common_month}.xlsx"
         master_path = os.path.join(OUTPUT_FOLDER, master_filename)
+
+
 
         with pd.ExcelWriter(master_path, engine="openpyxl") as writer:
             styled_df.to_excel(writer, index=False)
             sheet = writer.sheets['Sheet1']
 
-            
+
 
             color1 = "DAECF9"
             color2 = "B9D9F7"
