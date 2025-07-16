@@ -78,11 +78,6 @@ def extract_clean_meter_name(raw_name):
 
 def clean_building_name(filename):
     base = os.path.splitext(filename)[0]
-
-    if "nitrogen" in base.lower():
-        return base.strip()
-    
-    
     name_part = base.split("Residence - ")[-1]
     name_part = re.sub(r"\b(?:Report|report|timestamp)\b", "", name_part, flags=re.IGNORECASE)
     name_part = re.sub(r"\b\d{4}[- ]\d{2}[- ]\d{2}\b", "", name_part)
@@ -96,130 +91,109 @@ def clean_building_name(filename):
 def round_to_nearest_power_of_10(val, is_cogen):
     power = 10 ** (len(str(int(abs(val)))) - 1)
     return math.floor(val / power) * power if is_cogen else math.ceil(val / power) * power
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment, Font
+from openpyxl.worksheet.table import Table, TableStyleInfo
+import os
+from uuid import uuid4
+import re
 
+# Renaming the function to the original requested name
 def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str, bill_month, time_str):
     import pandas as pd
     from openpyxl import load_workbook
-    from openpyxl.styles import Alignment, PatternFill, Font
     from openpyxl.utils import get_column_letter
+    from openpyxl.styles import Alignment, Font
     from openpyxl.worksheet.table import Table, TableStyleInfo
     import os
     from uuid import uuid4
-    import logging
-    from dateutil.parser import parse
+    import re
 
     filename = os.path.basename(input_path)
-    print(f"🔄 Processing file: {filename}")
-    logging.info(f"Processing file: {filename}")
-
-    # Load full sheet
-    df = pd.read_excel(input_path, header=None)
-
-    # Extract Nitrogen title
-    title_row_values = df.iloc[0].dropna().astype(str).tolist()
-    title_text = " – ".join(title_row_values).strip()
-    df = df[1:]
-
-    # Find timestamp row
-    timestamp_row_idx = None
-    for idx, row in df.iterrows():
-        if any(isinstance(val, str) and "timestamp" in str(val).lower() for val in row):
-            timestamp_row_idx = idx
-            break
-    if timestamp_row_idx is None:
-        print(f"⚠️ Timestamp not found in: {filename}")
-        logging.warning(f"Timestamp not found in: {filename}")
-        return
-
-    # Extract and format data from timestamp row
-    df = df.iloc[timestamp_row_idx:].reset_index(drop=True)
-    headers = df.iloc[0].fillna("").astype(str).tolist()
-    df = df[1:].reset_index(drop=True)
-    df.columns = headers
-    df = df.dropna(axis=1, how='all')
-    df = df.rename(columns={df.columns[0]: "Timestamp"})
-
-    # ✅ Extract bill_month from first valid timestamp
-    extracted_month = bill_month  # fallback
-    for val in df["Timestamp"]:
-        try:
-            dt = parse(str(val), fuzzy=True)
-            extracted_month = dt.strftime("%B")
-            break
-        except:
-            continue
-
-    # Compute usage
-    usage_row = {"Timestamp": "Usage"}
-    for col in df.columns[1:]:
-        col_data = pd.to_numeric(df[col], errors="coerce").dropna()
-        usage_row[col] = round(col_data.iloc[-1], 2) if not col_data.empty else ""
-
-    # Combine final data
-    final_df = pd.concat([pd.DataFrame([usage_row]), df], ignore_index=True)
-
-    # ✅ Use same naming format as other files
-    output_filename = f"{today_str}_{time_str}_{extracted_month}_{building}.xlsx"
+    base_name = os.path.splitext(filename)[0]
+    output_filename = f"{base_name}_cleaned.xlsx"
     output_path = os.path.join(intermediate_subfolder, output_filename)
 
-    temp_path = os.path.join(intermediate_subfolder, f"{building.replace(' ', '_')}_temp.xlsx")
+    df = pd.read_excel(input_path, header=None)
+    title = str(df.iloc[0, 0]).strip()
+    headers = df.iloc[1].fillna("").astype(str).tolist()
+
+    seen = {}
+    clean_headers = []
+    for i, h in enumerate(headers):
+        h = h.strip()
+        if not h or h.lower() == "nan":
+            h = f"Meter{i+1}"
+        if h in seen:
+            seen[h] += 1
+            h = f"{h}_{seen[h]}"
+        else:
+            seen[h] = 1
+        clean_headers.append(h)
+
+    data = df.iloc[2:].copy()
+    data.columns = clean_headers
+    totals_row = data.iloc[-1]
+    data = data.iloc[:-1]
+
+    usage_row = []
+    for col in clean_headers:
+        if col.lower() == "timestamp":
+            usage_row.append("Usage")
+        else:
+            try:
+                val = float(totals_row[col])
+                usage_row.append(round(val, 2))
+            except:
+                usage_row.append("")
+
+    usage_df = pd.DataFrame([usage_row], columns=clean_headers)
+    final_df = pd.concat([usage_df, data], ignore_index=True)
+
+    temp_path = os.path.join(intermediate_subfolder, f"temp_{uuid4().hex[:6]}.xlsx")
     final_df.to_excel(temp_path, index=False)
 
-    # Format with openpyxl
     wb = load_workbook(temp_path)
-    sheet = wb.active
-    sheet.insert_rows(1)
-    sheet.cell(row=1, column=1).value = title_text
-    sheet.cell(row=1, column=1).font = Font(bold=True)
-    sheet.cell(row=1, column=1).alignment = Alignment(horizontal="left", vertical="center")
+    ws = wb.active
 
-    for col in range(2, sheet.max_column + 1):
-        cell = sheet.cell(row=2, column=col)
+    ws.insert_rows(1)
+    ws.cell(row=1, column=1).value = title
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ws.max_column)
+    ws.cell(row=1, column=1).font = Font(bold=True)
+    ws.cell(row=1, column=1).alignment = Alignment(horizontal="left")
+
+    for cell in ws[2]:
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="right", vertical="center")
         if isinstance(cell.value, (int, float)):
             cell.number_format = '#,##0.00'
-            cell.alignment = Alignment(horizontal="right", vertical="center")
 
-    for col_idx, cell in enumerate(sheet[3], start=1):
-        val = str(cell.value).strip()
-        cell.value = val if val else f"Column{col_idx}"
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for col_idx, cell in enumerate(ws[3], start=1):
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         col_letter = get_column_letter(col_idx)
-        if col_idx == 1:
-            sheet.column_dimensions[col_letter].width = 28
-        else:
-            sheet.column_dimensions[col_letter].width = min(45, len(val) + 15)
-
-    for row in sheet.iter_rows(min_row=4, max_row=sheet.max_row, min_col=1, max_col=sheet.max_column):
-        for cell in row:
-            if isinstance(cell.value, (int, float)):
-                cell.number_format = '#,##0.00'
-                cell.alignment = Alignment(horizontal="right", vertical="center")
-            elif cell.column == 1:
-                cell.alignment = Alignment(horizontal="left", vertical="center")
-            else:
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    for cell in sheet[3]:
-        cell.value = str(cell.value)
+        ws.column_dimensions[col_letter].width = max(10, len(str(cell.value)) + 2)
 
     try:
-        last_col = get_column_letter(sheet.max_column)
-        last_row = sheet.max_row
-        table_range = f"A3:{last_col}{last_row}"
-        table = Table(displayName=f"MeterTable_{uuid4().hex[:6]}", ref=table_range)
+        start_row = 3
+        end_row = ws.max_row
+        last_col = ws.max_column
+        table_range = f"A{start_row}:{get_column_letter(last_col)}{end_row}"
+        table = Table(displayName=f"Table_{uuid4().hex[:6]}", ref=table_range)
         style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
                                showLastColumn=False, showRowStripes=True, showColumnStripes=False)
         table.tableStyleInfo = style
-        sheet.add_table(table)
+        ws.add_table(table)
     except Exception as e:
-        print(f"⚠️ Could not apply table style to {filename}: {e}")
-        logging.warning(f"Could not apply table style to {filename}: {e}")
+        print(f"⚠️ Table formatting failed: {e}")
 
     wb.save(output_path)
     os.remove(temp_path)
+    print(f"✅ Cleaned nitrogen file saved to {output_path}")
+    return output_path
 
-    print(f"✅ Completed file: {filename}")
-    logging.info(f"Completed file: {filename} - saved to {output_path}")
+
 
 
 def format_excel(input_path, intermediate_subfolder, master_data, building_name, today_str, bill_month, time_str):
@@ -546,16 +520,19 @@ def main():
     for idx, file in enumerate(files, start=1):
         building = clean_building_name(file)
         file_path = os.path.join(PRE_UPDATED, file)
-        
-        if "nitrogen" in file.lower():
+        # format_excel(file_path, intermediate_subfolder, master_data, building, today_str, bill_month, time_str)
+
+        if re.search(r"\bNitrogen\s*\d+", file, re.IGNORECASE):
             handle_nitrogen_file(file_path, intermediate_subfolder, building, today_str, bill_month, time_str)
         else:
             format_excel(file_path, intermediate_subfolder, master_data, building, today_str, bill_month, time_str)
+        
         
         os.remove(file_path)
         print(f"📦 {idx}/{len(files)} files processed.")
         logging.info(f"Processed file {idx}/{len(files)}: {file}")
 
+        
 
     # Determine most frequent billing month from intermediate file names
     from collections import Counter #library imported
