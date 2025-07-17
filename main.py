@@ -79,10 +79,11 @@ def extract_clean_meter_name(raw_name):
 def clean_building_name(filename):
     base = os.path.splitext(filename)[0]
 
-    if "nitrogen" in base.lower():
+    if re.match(r"^nitrogen\s+\d+[a-z]?$", base.lower()):
+
         return base.strip()
-    
-    
+        
+
     name_part = base.split("Residence - ")[-1]
     name_part = re.sub(r"\b(?:Report|report|timestamp)\b", "", name_part, flags=re.IGNORECASE)
     name_part = re.sub(r"\b\d{4}[- ]\d{2}[- ]\d{2}\b", "", name_part)
@@ -97,7 +98,7 @@ def round_to_nearest_power_of_10(val, is_cogen):
     power = 10 ** (len(str(int(abs(val)))) - 1)
     return math.floor(val / power) * power if is_cogen else math.ceil(val / power) * power
 
-def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str, bill_month, time_str):
+def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str, bill_month, time_str, master_data):
     import pandas as pd
     from openpyxl import load_workbook
     from openpyxl.styles import Alignment, PatternFill, Font
@@ -151,9 +152,22 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
 
     # Compute usage
     usage_row = {"Timestamp": "Usage"}
+
+
+
     for col in df.columns[1:]:
         col_data = pd.to_numeric(df[col], errors="coerce").dropna()
         usage_row[col] = round(col_data.iloc[-1], 2) if not col_data.empty else ""
+    
+    # ✅ Append usage values to master_data (for Final output file)
+    if master_data is not None:
+        for col in df.columns[1:]:
+            col_data = pd.to_numeric(df[col], errors="coerce").dropna()
+            if not col_data.empty:
+                usage = round(col_data.iloc[-1], 2)
+                meter_name = str(col).strip()
+                master_data.append([building, meter_name, usage])
+
 
     # Combine final data
     final_df = pd.concat([pd.DataFrame([usage_row]), df], ignore_index=True)
@@ -187,7 +201,9 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
         if col_idx == 1:
             sheet.column_dimensions[col_letter].width = 28
         else:
-            sheet.column_dimensions[col_letter].width = min(45, len(val) + 15)
+            sheet.column_dimensions[col_letter].width = 35
+
+
 
     for row in sheet.iter_rows(min_row=4, max_row=sheet.max_row, min_col=1, max_col=sheet.max_column):
         for cell in row:
@@ -547,8 +563,8 @@ def main():
         building = clean_building_name(file)
         file_path = os.path.join(PRE_UPDATED, file)
         
-        if "nitrogen" in file.lower():
-            handle_nitrogen_file(file_path, intermediate_subfolder, building, today_str, bill_month, time_str)
+        if re.match(r"^nitrogen\s+\d+[a-z]?$", os.path.splitext(file)[0].lower()):
+            handle_nitrogen_file(file_path, intermediate_subfolder, building, today_str, bill_month, time_str, master_data)
         else:
             format_excel(file_path, intermediate_subfolder, master_data, building, today_str, bill_month, time_str)
         
