@@ -68,7 +68,6 @@ os.makedirs(INTERMEDIATE_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 
-# 
 def extract_clean_meter_name(raw_name):
     parts = raw_name.split("M")
     if len(parts) > 1 and parts[1][:1].isdigit():
@@ -140,7 +139,7 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
     df = df.dropna(axis=1, how='all')
     df = df.rename(columns={df.columns[0]: "Timestamp"})
 
-    # ✅ Extract bill_month from first valid timestamp
+    # Extract bill_month from first valid timestamp
     extracted_month = bill_month  # fallback
     for val in df["Timestamp"]:
         try:
@@ -159,7 +158,7 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
         col_data = pd.to_numeric(df[col], errors="coerce").dropna()
         usage_row[col] = round(col_data.iloc[-1], 2) if not col_data.empty else ""
     
-    # ✅ Append usage values to master_data (for Final output file)
+    # Append usage values to master_data (for Final output file)
     if master_data is not None:
         for col in df.columns[1:]:
             col_data = pd.to_numeric(df[col], errors="coerce").dropna()
@@ -172,7 +171,7 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
     # Combine final data
     final_df = pd.concat([pd.DataFrame([usage_row]), df], ignore_index=True)
 
-    # ✅ Use same naming format as other files
+    # Use same naming format as other files
     output_filename = f"{today_str}_{time_str}_{extracted_month}_{building}.xlsx"
     output_path = os.path.join(intermediate_subfolder, output_filename)
 
@@ -209,6 +208,7 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
         for cell in row:
             if isinstance(cell.value, (int, float)):
                 cell.number_format = '#,##0.00'
+                #cell.alignment = Alignment (horizontal = "middle". uppercase(), vertical="center")
                 cell.alignment = Alignment(horizontal="right", vertical="center")
             elif cell.column == 1:
                 cell.alignment = Alignment(horizontal="left", vertical="center")
@@ -218,21 +218,44 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
     for cell in sheet[3]:
         cell.value = str(cell.value)
 
-    try:
-        last_col = get_column_letter(sheet.max_column)
-        last_row = sheet.max_row
-        table_range = f"A3:{last_col}{last_row}"
-        table = Table(displayName=f"MeterTable_{uuid4().hex[:6]}", ref=table_range)
-        style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
-                               showLastColumn=False, showRowStripes=True, showColumnStripes=False)
-        table.tableStyleInfo = style
-        sheet.add_table(table)
-    except Exception as e:
-        print(f"⚠️ Could not apply table style to {filename}: {e}")
-        logging.warning(f"Could not apply table style to {filename}: {e}")
+    for col_idx in range(2, sheet.max_column + 1):
+        cell = sheet.cell(row=3, column=col_idx)
+        # ensure it’s a float
+        try:
+            cell.value = float(cell.value)
+        except:
+            cell.value = 0.0
+        # apply comma separators & two decimals
+        cell.number_format = '#,##0.00'
+        cell.alignment = Alignment(horizontal='right', vertical='center')
+
+
+    if sheet.max_row >= 4:
+        try:
+            last_col = get_column_letter(sheet.max_column)
+            last_row = sheet.max_row
+            # START AT ROW 2 (real headers), not row 3
+            table_range = f"A2:{last_col}{last_row}"
+            table = Table(
+                displayName=f"MeterTable_{uuid4().hex[:6]}",
+                ref=table_range
+            )
+            style = TableStyleInfo(
+                name="TableStyleMedium9",
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=True,
+                showColumnStripes=False
+            )
+            table.tableStyleInfo = style
+            sheet.add_table(table)
+        except Exception as e:
+            print(f"⚠️ Could not apply table style to {filename}: {e}")
+            logging.warning(f"Could not apply table style to {filename}: {e}")
 
     wb.save(output_path)
     os.remove(temp_path)
+
 
     print(f"✅ Completed file: {filename}")
     logging.info(f"Completed file: {filename} - saved to {output_path}")
