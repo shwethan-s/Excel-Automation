@@ -23,14 +23,9 @@ os.makedirs(LOG_FOLDER, exist_ok=True)
 master_log_path = os.path.join(LOG_FOLDER, "master_log.txt")
 
 
-
-
 class EmojiFilter(logging.Filter):
     def filter(self, record):
-       
         record.msg = re.sub(r'[^\x00-\x7F]+', '', str(record.msg))
-
-
         return True
 
 formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s')
@@ -41,11 +36,11 @@ file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(formatter)
 file_handler.addFilter(EmojiFilter())
 
-# Console handler - this will log to the console and strip emojis
+# Console handler - you said you don't want extra logs in console, so we leave it out of basicConfig
+# (Leaving this here in case you ever want to enable both)
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(formatter)
-
 
 logging.basicConfig(level=logging.INFO, handlers=[file_handler])
 
@@ -79,9 +74,7 @@ def clean_building_name(filename):
     base = os.path.splitext(filename)[0]
 
     if re.match(r"^nitrogen\s+\d+[a-z]?$", base.lower()):
-
         return base.strip()
-        
 
     name_part = base.split("Residence - ")[-1]
     name_part = re.sub(r"\b(?:Report|report|timestamp)\b", "", name_part, flags=re.IGNORECASE)
@@ -93,9 +86,11 @@ def clean_building_name(filename):
     name_part = re.sub(r"\s{2,}", " ", name_part)
     return name_part.strip(" -_")
 
+
 def round_to_nearest_power_of_10(val, is_cogen):
     power = 10 ** (len(str(int(abs(val)))) - 1)
     return math.floor(val / power) * power if is_cogen else math.ceil(val / power) * power
+
 
 def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str, bill_month, time_str, master_data):
     import pandas as pd
@@ -151,13 +146,10 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
 
     # Compute usage
     usage_row = {"Timestamp": "Usage"}
-
-
-
     for col in df.columns[1:]:
         col_data = pd.to_numeric(df[col], errors="coerce").dropna()
         usage_row[col] = round(col_data.iloc[-1], 2) if not col_data.empty else ""
-    
+
     # Append usage values to master_data (for Final output file)
     if master_data is not None:
         for col in df.columns[1:]:
@@ -166,7 +158,6 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
                 usage = round(col_data.iloc[-1], 2)
                 meter_name = str(col).strip()
                 master_data.append([building, meter_name, usage])
-
 
     # Combine final data
     final_df = pd.concat([pd.DataFrame([usage_row]), df], ignore_index=True)
@@ -181,60 +172,83 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
     # Format with openpyxl
     wb = load_workbook(temp_path)
     sheet = wb.active
-    sheet.insert_rows(1)
-    sheet.cell(row=1, column=1).value = title_text
-    sheet.cell(row=1, column=1).font = Font(bold=True)
-    sheet.cell(row=1, column=1).alignment = Alignment(horizontal="left", vertical="center")
 
+    # --------- CHANGED: Nitrogen 1x usage on Row 1; keep everything else identical ----------
+    base_lower = os.path.splitext(filename)[0].lower()
+    is_nitro_1x = re.match(r"^nitrogen\s+(1a|1b|2|3)\b", base_lower) is not None
+
+    if is_nitro_1x and sheet.max_row >= 2:
+        # Swap row 1 (headers) and row 2 (usage) so usage is Row 1, headers Row 2.
+        maxc = sheet.max_column
+        headers_vals = [sheet.cell(row=1, column=c).value for c in range(1, maxc + 1)]
+        usage_vals   = [sheet.cell(row=2, column=c).value for c in range(1, maxc + 1)]
+
+        # Write Usage to row 1
+        for c, v in enumerate(usage_vals, start=1):
+            cell = sheet.cell(row=1, column=c, value=v)
+            if c == 1:
+                cell.value = "Usage"
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+            else:
+                try:
+                    cell.value = float(v)
+                except Exception:
+                    pass
+                cell.number_format = '#,##0.00'
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+
+        # Write headers to row 2
+        for c, v in enumerate(headers_vals, start=1):
+            cell = sheet.cell(row=2, column=c, value=str(v) if v is not None else "")
+            if c == 1:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Title row:
+    # - For Nitrogen 1x we SKIP the title (so Usage stays Row 1)
+    # - For all other nitrogen files we keep your original title insertion
+    if not is_nitro_1x:
+        sheet.insert_rows(1)
+        sheet.cell(row=1, column=1).value = title_text
+        sheet.cell(row=1, column=1).font = Font(bold=True)
+        sheet.cell(row=1, column=1).alignment = Alignment(horizontal="left", vertical="center")
+
+    # Decide usage row index for formatting:
+    USAGE_ROW = 1 if is_nitro_1x else 3
+
+    # Keep your little header numeric touch on row 2
     for col in range(2, sheet.max_column + 1):
         cell = sheet.cell(row=2, column=col)
         if isinstance(cell.value, (int, float)):
             cell.number_format = '#,##0.00'
             cell.alignment = Alignment(horizontal="right", vertical="center")
 
-    for col_idx, cell in enumerate(sheet[3], start=1):
-        val = str(cell.value).strip()
-        cell.value = val if val else f"Column{col_idx}"
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+    # Widths
+    for col_idx, _ in enumerate(sheet[USAGE_ROW], start=1):
         col_letter = get_column_letter(col_idx)
-        if col_idx == 1:
-            sheet.column_dimensions[col_letter].width = 28
-        else:
-            sheet.column_dimensions[col_letter].width = 35
+        sheet.column_dimensions[col_letter].width = 28 if col_idx == 1 else 35
 
-
-
-    for row in sheet.iter_rows(min_row=4, max_row=sheet.max_row, min_col=1, max_col=sheet.max_column):
+    # CHANGED: Apply number formatting to the WHOLE table including the first data row.
+    # Data starts at:
+    # - Row 3 for Nitrogen 1x (Usage at 1, Headers at 2, Data at 3)
+    # - Row 4 otherwise (Title at 1, Headers at 2, Usage at 3, Data at 4)
+    data_start_row = 3 if USAGE_ROW == 1 else 4  # <-- key fix for rounding on the first data row
+    for row in sheet.iter_rows(min_row=data_start_row, max_row=sheet.max_row, min_col=1, max_col=sheet.max_column):
         for cell in row:
             if isinstance(cell.value, (int, float)):
                 cell.number_format = '#,##0.00'
-                #cell.alignment = Alignment (horizontal = "middle". uppercase(), vertical="center")
                 cell.alignment = Alignment(horizontal="right", vertical="center")
             elif cell.column == 1:
                 cell.alignment = Alignment(horizontal="left", vertical="center")
             else:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    for cell in sheet[3]:
-        cell.value = str(cell.value)
-
-    for col_idx in range(2, sheet.max_column + 1):
-        cell = sheet.cell(row=3, column=col_idx)
-        # ensure it’s a float
-        try:
-            cell.value = float(cell.value)
-        except:
-            cell.value = 0.0
-        # apply comma separators & two decimals
-        cell.number_format = '#,##0.00'
-        cell.alignment = Alignment(horizontal='right', vertical='center')
-
-
-    if sheet.max_row >= 4:
+    # Build table (starts at A2 so headers are included, Usage row is a separate top row)
+    if sheet.max_row >= data_start_row:
         try:
             last_col = get_column_letter(sheet.max_column)
             last_row = sheet.max_row
-            # START AT ROW 2 (real headers), not row 3
             table_range = f"A2:{last_col}{last_row}"
             table = Table(
                 displayName=f"MeterTable_{uuid4().hex[:6]}",
@@ -254,8 +268,8 @@ def handle_nitrogen_file(input_path, intermediate_subfolder, building, today_str
             logging.warning(f"Could not apply table style to {filename}: {e}")
 
     wb.save(output_path)
-    os.remove(temp_path)
-
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
 
     print(f"✅ Completed file: {filename}")
     logging.info(f"Completed file: {filename} - saved to {output_path}")
@@ -280,7 +294,6 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
     sheet = wb.active
 
     timestamp_row = None
-
     for row in sheet.iter_rows(min_row=1, max_row=30):
         for cell in row:
             if cell.value and "timestamp" in str(cell.value).lower():
@@ -294,8 +307,11 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
         logging.warning(f"Timestamp not found in: {filename}")
         return
 
+    # Identify ABB here so we can tweak ONLY the top blank rows behavior
+    base_lower = os.path.splitext(filename)[0].lower()
+    is_abb = base_lower.startswith("abb ") or base_lower.startswith("abb_") or base_lower.startswith("abb")
 
-    # Infomration Requiring Your Attention (IRYA) section handling
+    # Information Requiring Your Attention (IRYA) section handling
     irya_found = False
     irya_start = 1
     for i in range(1, timestamp_row):
@@ -309,11 +325,18 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
             sheet.delete_rows(1)
         timestamp_row -= (irya_start - 1)
     else:
+        # Delete rows above the timestamp row, so timestamp becomes Row 1
         for _ in range(timestamp_row - 1):
             sheet.delete_rows(1)
-        for _ in range(3):
-            sheet.insert_rows(1)
-        timestamp_row = 4
+        # CHANGED: For ABB, insert ONLY 1 row (so Usage ends up at Row 1, Headers at Row 2, Data at Row 3)
+        #          For everything else, keep your original 3 inserted rows.
+        if is_abb:
+            sheet.insert_rows(1)          # insert 1
+            timestamp_row = 2             # Timestamp is now on Row 2
+        else:
+            for _ in range(3):
+                sheet.insert_rows(1)      # insert 3 (original behavior)
+            timestamp_row = 4
 
     first_data_row = timestamp_row + 1
     last_data_row = sheet.max_row
@@ -327,7 +350,6 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
     for col_idx, cell in enumerate(sheet[timestamp_row], start=1):
         if cell.value:
-
             original = str(cell.value).strip()
             lines = []
 
@@ -343,12 +365,10 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
             # Extract unit like (kWh)
             unit = ""
             if "(" in rest and ")" in rest:
-                # Clean split and extract
                 rest_parts = rest.split("(", 1)
                 rest = rest_parts[0].strip()
                 unit = f"({rest_parts[1].strip(')')})"
 
-            
             if rest:
                 lines.append(rest)
             if unit:
@@ -362,9 +382,6 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
             col_letter = get_column_letter(col_idx)
             max_line_length = max(len(line.strip()) for line in lines)
             sheet.column_dimensions[col_letter].width = max_line_length + 2  # small buffer
-
-
-
 
     usage_row_index = timestamp_row - 1
     usage_cells = []
@@ -418,10 +435,8 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
         usage_cells.append(usage_cell)
         master_data.append([building_name, clean_meter, round(usage, 2)])
 
-
-        # Only add summary if it's the "IESO and Hospital" sheet
+    # Only add summary if it's the "IESO and Hospital" sheet
     if "IESO and Hospital" in filename or "IESO_Hospital" in filename:
-
         try:
             from openpyxl.worksheet.table import Table, TableStyleInfo
 
@@ -431,8 +446,6 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
                 header_val = sheet.cell(row=timestamp_row, column=col).value
                 if header_val and str(header_val).strip():
                     last_meter_col = col
-
-
 
             # Detect how many actual data rows exist under the timestamp
             first_data_row = timestamp_row + 1
@@ -448,11 +461,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
                 else:
                     break  # Stop at first empty row
 
-                
-
             row_end = first_data_row + data_row_count - 1
-
-           # print(f"📊 DEBUG – {filename}: table range = A{timestamp_row}:{get_column_letter(last_meter_col)}{row_end}")
 
             if row_end > timestamp_row and last_meter_col >= 1:
                 last_col_letter = get_column_letter(last_meter_col)
@@ -460,7 +469,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
                 table = Table(displayName=f"MeterTable_{uuid4().hex[:6]}", ref=meter_table_ref)
                 style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
-                                    showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+                                       showLastColumn=False, showRowStripes=True, showColumnStripes=False)
                 table.tableStyleInfo = style
                 sheet.add_table(table)
             else:
@@ -473,11 +482,8 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
         for cell in usage_cells:
             meter_header = sheet.cell(row=timestamp_row, column=cell.column).value
-
-            
             if not meter_header:
                 continue
-
 
             normalized = str(meter_header).replace("\n", "").replace(" ", "")
 
@@ -504,12 +510,12 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
             val_cell.number_format = '#,##0.00'
             val_cell.alignment = Alignment(horizontal="right", vertical="center")
 
-        # Widen the summary columns to ensure nothing is squished
+        # Widen the summary columns
         for c in [base_col, base_col + 1]:
             col_letter = get_column_letter(c)
             sheet.column_dimensions[col_letter].width = 20
 
-        # Apply final formatting fix ONLY for IESO and Hospital sheets
+    # Column width and number formatting pass
     for col in sheet.iter_cols(min_row=usage_row_index + 1, max_row=sheet.max_row, min_col=1, max_col=sheet.max_column):
         col_letter = get_column_letter(col[0].column)
         max_len = max((len(str(cell.value)) for cell in col if cell.value is not None), default=10)
@@ -517,13 +523,12 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
         for cell in col:
             if isinstance(cell.value, (int, float)):
-                cell.number_format = '#,##0.00' 
+                cell.number_format = '#,##0.00'
                 cell.alignment = Alignment(horizontal='right', vertical='center')
             elif isinstance(cell.value, str) and col[0].column == 1:
                 cell.alignment = Alignment(horizontal='left', vertical='center')  # Timestamp stays left-aligned
 
-
-    # Apply a table style to the main data if not already styled
+    # Apply a table style to the main data if not already styled (non-IESO sheet)
     if "IESO and Hospital" not in filename:
         try:
             from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -532,16 +537,13 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
             table = Table(displayName=f"MeterTable_{uuid4().hex[:6]}", ref=meter_table_ref)
 
             style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
-                                showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+                                   showLastColumn=False, showRowStripes=True, showColumnStripes=False)
             table.tableStyleInfo = style
 
             sheet.add_table(table)
         except Exception as e:
             print(f"⚠️ Could not apply table style to intermediate file {filename}: {e}")
             logging.error(f"Could not apply table style to intermediate file {filename}: {e}")
-
-    
-    
 
     # Dynamically determine bill_month from first datetime under timestamp
     bill_month_final = bill_month  # default fallback
@@ -555,7 +557,6 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
             continue
 
     output_filename = f"{today_str}_{time_str}_{bill_month_final}_{building_name}.xlsx"
-
     output_path = os.path.join(intermediate_subfolder, output_filename)
     wb.save(output_path)
     if os.path.exists(temp_path) and temp_path != input_path:
@@ -563,12 +564,13 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
     print(f"✅ Completed file: {filename}")
     logging.info(f"Completed file: {filename} - saved to {output_path}")
 
+
 def main():
     now = datetime.now()
     master_data = []
     today_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%H-%M")
-    
+
     bill_month = now.strftime("%B")
     master_data = []
 
@@ -581,23 +583,21 @@ def main():
     print(f"📁 Found {len(files)} files in Pre-Updated folder.")
     logging.info(f"Found {len(files)} files in Pre-Updated folder.")
 
-
     for idx, file in enumerate(files, start=1):
         building = clean_building_name(file)
         file_path = os.path.join(PRE_UPDATED, file)
-        
+
         if re.match(r"^nitrogen\s+\d+[a-z]?$", os.path.splitext(file)[0].lower()):
             handle_nitrogen_file(file_path, intermediate_subfolder, building, today_str, bill_month, time_str, master_data)
         else:
             format_excel(file_path, intermediate_subfolder, master_data, building, today_str, bill_month, time_str)
-        
+
         os.remove(file_path)
         print(f"📦 {idx}/{len(files)} files processed.")
         logging.info(f"Processed file {idx}/{len(files)}: {file}")
 
-
     # Determine most frequent billing month from intermediate file names
-    from collections import Counter #library imported
+    from collections import Counter
     month_counts = Counter()
     for file in os.listdir(intermediate_subfolder):
         match = re.search(rf"{time_str}_(\w+)_", file)
@@ -607,14 +607,13 @@ def main():
     if month_counts:
         most_common_month = month_counts.most_common(1)[0][0]
     else:
-        most_common_month = bill_month  # if this fails then default to current month 
+        most_common_month = bill_month  # default to current month
 
     # Rename intermediate folder to include most common billing month
     final_folder_name = f"{today_str}_{time_str}_{most_common_month}"
     final_folder_path = os.path.join(INTERMEDIATE_FOLDER, final_folder_name)
     os.rename(intermediate_subfolder, final_folder_path)
     intermediate_subfolder = final_folder_path  # update reference for later use
-
 
     if master_data:
         df = pd.DataFrame(master_data, columns=["Building", "Meter", "Usage"])
@@ -630,13 +629,9 @@ def main():
         master_filename = f"Final-{today_str}-{time_str}-{most_common_month}.xlsx"
         master_path = os.path.join(OUTPUT_FOLDER, master_filename)
 
-
-
         with pd.ExcelWriter(master_path, engine="openpyxl") as writer:
             styled_df.to_excel(writer, index=False)
             sheet = writer.sheets['Sheet1']
-
-
 
             color1 = "DAECF9"
             color2 = "B9D9F7"
@@ -654,12 +649,11 @@ def main():
                 while end <= sheet.max_row and sheet.cell(row=end, column=1).value:
                     end += 1
                 for r in range(start, end):
-                    for c in range(1, 4):
+                    for c in range(1, 3 + 1):
                         sheet.cell(row=r, column=c).fill = PatternFill(start_color=current_fill, end_color=current_fill, fill_type="solid")
                 current_fill = color2 if current_fill == color1 else color1
                 start = end + 1
 
-            
             # Adjust column widths and align Usage column to the right
             for column_cells in sheet.columns:
                 col_letter = get_column_letter(column_cells[0].column)
@@ -670,11 +664,12 @@ def main():
                     if column_cells[0].column == 3:  # Column C = "Usage"
                         cell.alignment = Alignment(horizontal="right", vertical="center")
 
-
         print(f"✅ Master Excel file saved: {master_filename}")
         logging.info(f"Master Excel file saved: {master_filename} - {master_path}")
+
 
 if __name__ == "__main__":
     main()
     input("Press Enter to exit...")
+
 
